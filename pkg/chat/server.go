@@ -1,7 +1,9 @@
 package chat
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
@@ -14,14 +16,57 @@ import (
 )
 
 var (
-	Clients  []Client = make([]Client, 0)
-	Database *sql.DB  = nil
+	Port       int      = 8080
+	MaxClients int      = 0
+	Clients    []Client = make([]Client, 0)
+	Database   *sql.DB  = nil
 
-	nextClientId int = 1
+	nextClientId int            = 1
+	dbConfig     DatabaseConfig = DatabaseConfig{"127.0.0.1:3306", "root", "", "database"}
 )
 
-func ConnectToDatabase(host, username, password, name string) error {
-	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s", username, password, host, name))
+func ParseConfig(path string) error {
+	var config ServerConfig
+
+	file, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(file, &config)
+	if err != nil {
+		return fmt.Errorf("Invalid config: %s", err)
+	}
+
+	Port = config.Port
+	MaxClients = config.MaxClients
+	dbConfig = config.Database
+
+	return nil
+}
+
+func Start() error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", HandleWebsocket)
+	http.Handle("/", mux)
+
+	err := ConnectToDatabase()
+	if err != nil {
+		return fmt.Errorf("Cannot connect to database: %s", err)
+	}
+	defer Database.Close()
+
+	log.Println("Listening on port", Port)
+	addr := fmt.Sprintf("0.0.0.0:%d", Port)
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		return fmt.Errorf("Cannot bind http server: %s", err)
+	}
+
+	return nil
+}
+
+func ConnectToDatabase() error {
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s", dbConfig.Username, dbConfig.Password, dbConfig.Host, dbConfig.Name))
 	if err != nil {
 		return &DatabaseError{err.Error()}
 	}
@@ -36,14 +81,18 @@ func ConnectToDatabase(host, username, password, name string) error {
 	return nil
 }
 
-func AddClient(addr string, conn *websocket.Conn) *Client {
+func AddClient(addr string, conn *websocket.Conn) (*Client, error) {
+	if MaxClients != 0 && len(Clients) >= MaxClients {
+		return nil, fmt.Errorf("Can not accept client [%s] : server full (max clients: %d)", conn.RemoteAddr(), MaxClients)
+	}
+
 	var client Client = Client{*conn, nextClientId, false, "", "", ""}
 
 	Clients = append(Clients, client)
 	log.Println("Client", addr, "connected with id", nextClientId)
 
 	nextClientId++
-	return &Clients[len(Clients)-1]
+	return &Clients[len(Clients)-1], nil
 }
 
 func HandleWebsocket(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +109,11 @@ func HandleWebsocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := AddClient(r.RemoteAddr, conn)
+	client, err := AddClient(r.RemoteAddr, conn)
+	if err != nil {
+		log.Println(err)
+	}
+
 	err = client.Process()
 	if err != nil {
 		log.Println("Failed to process client: ", err)

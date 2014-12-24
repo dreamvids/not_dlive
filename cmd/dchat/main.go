@@ -1,12 +1,8 @@
 package main
 
 import (
-	"flag"
-	"fmt"
-	"log"
-	"net/http"
-
 	"github.com/dreamvids/dchat/pkg/chat"
+	"log"
 )
 
 const (
@@ -18,20 +14,13 @@ func main() {
 	log.Println("Hello world !")
 	log.Println(Name, "- Version", Version)
 
-	port := flag.Int("port", 8080, "The port to listen to")
-	flag.Parse()
+	err := chat.ParseConfig("server.json")
+	if err != nil {
+		log.Fatalf("Fatal error while parsing config: %s", err)
+	}
 
-	log.Println("Listening on port", *port)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", chat.HandleWebsocket)
-	http.Handle("/", mux)
-
-	chat.ConnectToDatabase("127.0.0.1:3306", "root", "", "dreamvids_v2")
-	defer chat.Database.Close()
-
-	addr := fmt.Sprintf("0.0.0.0:%d", *port)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatal("Cannot start ChatServer: ", err)
+	err = chat.Start()
+	if err != nil {
+		log.Fatalf("Fatal error when running server: %s", err)
 	}
 }
