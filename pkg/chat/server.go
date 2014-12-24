@@ -30,12 +30,12 @@ func ParseConfig(path string) error {
 
 	file, err := ioutil.ReadFile(path)
 	if err != nil {
-		return err
+		return &ConfigurationError{err.Error()}
 	}
 
 	err = json.Unmarshal(file, &config)
 	if err != nil {
-		return fmt.Errorf("Invalid config: %s", err)
+		return &ConfigurationError{err.Error()}
 	}
 
 	Port = config.Port
@@ -52,7 +52,7 @@ func Start() error {
 
 	err := ConnectToDatabase()
 	if err != nil {
-		return fmt.Errorf("Cannot connect to database: %s", err)
+		return &DatabaseError{"Cannot connect to database: " + err.Error()}
 	}
 	defer Database.Close()
 
@@ -83,7 +83,7 @@ func ConnectToDatabase() error {
 
 func AddClient(addr string, conn *websocket.Conn) (*Client, error) {
 	if MaxClients != 0 && len(Clients) >= MaxClients {
-		return nil, fmt.Errorf("Can not accept client [%s] : server full (max clients: %d)", conn.RemoteAddr(), MaxClients)
+		return nil, &ServerError{fmt.Sprintf("Can not accept client [%s] : server full (max clients: %d)", conn.RemoteAddr(), MaxClients)}
 	}
 
 	var client Client = Client{*conn, nextClientId, false, "", "", ""}
@@ -261,7 +261,7 @@ func processMute(username, reason string, admin *Client) error {
 
 	adminId, err := admin.GetUserId()
 	if err != nil {
-		return fmt.Errorf("Can not authenticate admin %s", admin.Name)
+		return &ServerError{"Can not authenticate admin " + admin.Name}
 	}
 
 	_, err = insStmt.Query(username, adminId, time.Now().Unix())
@@ -281,12 +281,12 @@ func processUnmute(username string, admin *Client) error {
 
 	_, err := admin.GetUserId()
 	if err != nil {
-		return fmt.Errorf("Can not authenticate admin %s", admin.Name)
+		return &ServerError{"Can not authenticate admin " + admin.Name}
 	}
 
 	_, err = delStmt.Query(username)
 	if err != nil {
-		return err
+		return &DatabaseError{err.Error()}
 	}
 
 	admin.SendTextMessage("Unmuted " + username)
@@ -338,14 +338,14 @@ func GetClientByName(name string) (*Client, error) {
 		}
 	}
 
-	return &Client{}, fmt.Errorf("Cannot find a client with name '%s'", name)
+	return &Client{}, &ServerError{fmt.Sprintf("Cannot find a client with name '%s'", name)}
 }
 
 func RemoveClient(client *Client) error {
 	i := client.Id - 1
 
 	if i >= len(Clients) {
-		return fmt.Errorf("Can not find the specified client in client list")
+		return &ServerError{"Can not find the specified client in client list"}
 	}
 
 	client.Close()
