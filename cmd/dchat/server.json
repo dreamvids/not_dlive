@@ -1,0 +1,10 @@
+{
+	"port": 8081,
+	"max-clients": 10,
+	"database": {
+		"host": "127.0.0.1:3306",
+		"username": "root",
+		"password": "",
+		"name": "dreamvids_v2"
+	}
+}
