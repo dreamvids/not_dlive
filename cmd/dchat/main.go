@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"github.com/dreamvids/chat/pkg/chat"
 	"log"
 )
@@ -14,7 +15,10 @@ func main() {
 	log.Println("Hello world !")
 	log.Println(Name, "- Version", Version)
 
-	err := chat.ParseConfig("server.json")
+	configPath := flag.String("config", "dchat.json", "Configuration file to use")
+	flag.Parse()
+
+	err := chat.ParseConfig(*configPath)
 	if err != nil {
 		log.Fatalf("Fatal error while parsing config: %s", err)
 	}
