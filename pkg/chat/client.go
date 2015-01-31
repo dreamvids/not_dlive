@@ -113,9 +113,9 @@ func (this *Client) GetRankStr() string {
 	}
 
 	switch userRank {
-	case 4:
+	case ModoRankId:
 		return "modo"
-	case 5:
+	case AdminRankId:
 		return "admin"
 	default:
 		return ""

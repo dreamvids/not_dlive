@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/dreamvids/dchat/pkg/chat"
+	"github.com/dreamvids/chat/pkg/chat"
 	"log"
 )
 

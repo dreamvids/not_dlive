@@ -21,6 +21,10 @@ var (
 	Clients    []Client = make([]Client, 0)
 	Database   *sql.DB  = nil
 
+	ModoRankId  int    = 4
+	AdminRankId int    = 5
+	MuteMessage string = "Vous n'avez pas été sage. Vous ne pouvez donc pas parler."
+
 	nextClientId int            = 1
 	dbConfig     DatabaseConfig = DatabaseConfig{"127.0.0.1:3306", "root", "", "database"}
 )
@@ -40,6 +44,9 @@ func ParseConfig(path string) error {
 
 	Port = config.Port
 	MaxClients = config.MaxClients
+	ModoRankId = config.ModoRank
+	AdminRankId = config.AdminRank
+	MuteMessage = config.MuteMessage
 	dbConfig = config.Database
 
 	return nil
@@ -142,7 +149,7 @@ func HandleFrame(frame *Frame, client *Client) error {
 
 	if message.Type == TextMessage && message.Content != "" {
 		if client.isMuted() {
-			client.SendTextMessage("Vous n'avez pas été sage. Vous ne pouvez donc pas parler.")
+			client.SendTextMessage(MuteMessage)
 			return nil
 		}
 
@@ -159,8 +166,6 @@ func HandleFrame(frame *Frame, client *Client) error {
 		if err != nil {
 			return err
 		}
-
-		log.Println("Sended frame", string(jsonData))
 
 		BroadcastFrame(&Frame{websocket.TextMessage, jsonData}, message.Channel)
 	}
