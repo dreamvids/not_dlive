@@ -1,0 +1,12 @@
+{
+	"chat-port": 8081,
+	"chat-max-clients": 10,
+	"chat-modo-rank": 4,
+	"chat-admin-rank": 5,
+	"chat-mute-message": "Vous n'avez pas été sage. Vous ne pouvez donc pas parler.",
+
+	"db-host": "172.17.0.1:3306",
+	"db-username": "root",
+	"db-password": "root",
+	"db-name": "dreamvids_v2"
+}

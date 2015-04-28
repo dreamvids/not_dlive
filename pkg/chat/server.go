@@ -1,9 +1,7 @@
 package chat
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
@@ -25,43 +23,15 @@ var (
 	AdminRankId int    = 5
 	MuteMessage string = "Vous n'avez pas été sage. Vous ne pouvez donc pas parler."
 
-	nextClientId int            = 1
-	dbConfig     DatabaseConfig = DatabaseConfig{"127.0.0.1:3306", "root", "", "database"}
+	nextClientId int = 1
 )
 
-func ParseConfig(path string) error {
-	var config ServerConfig
+func Start(db *sql.DB) error {
+	Database = db
 
-	file, err := ioutil.ReadFile(path)
-	if err != nil {
-		return &ConfigurationError{err.Error()}
-	}
-
-	err = json.Unmarshal(file, &config)
-	if err != nil {
-		return &ConfigurationError{err.Error()}
-	}
-
-	Port = config.Port
-	MaxClients = config.MaxClients
-	ModoRankId = config.ModoRank
-	AdminRankId = config.AdminRank
-	MuteMessage = config.MuteMessage
-	dbConfig = config.Database
-
-	return nil
-}
-
-func Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", HandleWebsocket)
 	http.Handle("/", mux)
-
-	err := ConnectToDatabase()
-	if err != nil {
-		return &DatabaseError{"Cannot connect to database: " + err.Error()}
-	}
-	defer Database.Close()
 
 	log.Println("Listening on port", Port)
 	addr := fmt.Sprintf("0.0.0.0:%d", Port)
@@ -69,22 +39,6 @@ func Start() error {
 		return fmt.Errorf("Cannot bind http server: %s", err)
 	}
 
-	return nil
-}
-
-func ConnectToDatabase() error {
-	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s", dbConfig.Username, dbConfig.Password, dbConfig.Host, dbConfig.Name))
-	if err != nil {
-		return &DatabaseError{err.Error()}
-	}
-
-	if err = db.Ping(); err != nil {
-		return &DatabaseError{err.Error()}
-	}
-
-	Database = db
-
-	log.Println("Connected to database !")
 	return nil
 }
 
