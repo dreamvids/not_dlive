@@ -26,25 +26,13 @@ var (
 	nextClientId int = 1
 )
 
-func Start(db *sql.DB) error {
+func Init(db *sql.DB) {
 	Database = db
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", HandleWebsocket)
-	http.Handle("/", mux)
-
-	log.Println("Listening on port", Port)
-	addr := fmt.Sprintf("0.0.0.0:%d", Port)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		return fmt.Errorf("Cannot bind http server: %s", err)
-	}
-
-	return nil
 }
 
 func AddClient(addr string, conn *websocket.Conn) (*Client, error) {
 	if MaxClients != 0 && len(Clients) >= MaxClients {
-		return nil, &ServerError{fmt.Sprintf("Can not accept client [%s] : server full (max clients: %d)", conn.RemoteAddr(), MaxClients)}
+		return nil, fmt.Errorf("Can not accept client [%s] : server full (max clients: %d)", conn.RemoteAddr(), MaxClients)
 	}
 
 	var client Client = Client{*conn, nextClientId, false, "", "", ""}
@@ -220,7 +208,7 @@ func processMute(username, reason string, admin *Client) error {
 
 	adminId, err := admin.GetUserId()
 	if err != nil {
-		return &ServerError{"Can not authenticate admin " + admin.Name}
+		return fmt.Errorf("Can not authenticate admin %s", admin.Name)
 	}
 
 	_, err = insStmt.Query(username, adminId, time.Now().Unix())
@@ -240,12 +228,12 @@ func processUnmute(username string, admin *Client) error {
 
 	_, err := admin.GetUserId()
 	if err != nil {
-		return &ServerError{"Can not authenticate admin " + admin.Name}
+		return fmt.Errorf("Can not authenticate admin %s", admin.Name)
 	}
 
 	_, err = delStmt.Query(username)
 	if err != nil {
-		return &DatabaseError{err.Error()}
+		return err
 	}
 
 	admin.SendTextMessage("Unmuted " + username)
@@ -297,14 +285,14 @@ func GetClientByName(name string) (*Client, error) {
 		}
 	}
 
-	return &Client{}, &ServerError{fmt.Sprintf("Cannot find a client with name '%s'", name)}
+	return &Client{}, fmt.Errorf("Cannot find a client with name '%s'", name)
 }
 
 func RemoveClient(client *Client) error {
 	i := client.Id - 1
 
 	if i >= len(Clients) {
-		return &ServerError{"Can not find the specified client in client list"}
+		return fmt.Errorf("Can not find the specified client in client list")
 	}
 
 	client.Close()

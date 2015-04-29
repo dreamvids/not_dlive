@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 const (
@@ -20,7 +21,7 @@ func (this *Frame) Parse() (Message, error) {
 	var message Message
 
 	if err := json.Unmarshal(this.Data, &message); err != nil {
-		return message, InvalidMessageError
+		return message, fmt.Errorf("Invalid message")
 	}
 
 	return message, nil
@@ -41,7 +42,7 @@ type Message struct {
 func (this *Message) ToJson() ([]byte, error) {
 	jsonData, err := json.Marshal(this)
 	if err != nil {
-		return nil, InvalidMessageError
+		return nil, fmt.Errorf("Invalid message")
 	}
 
 	return jsonData, nil

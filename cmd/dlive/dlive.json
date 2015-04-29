@@ -1,5 +1,6 @@
 {
-	"chat-port": 8081,
+	"http-port": 8081,
+
 	"chat-max-clients": 10,
 	"chat-modo-rank": 4,
 	"chat-admin-rank": 5,

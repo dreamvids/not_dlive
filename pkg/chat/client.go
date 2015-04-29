@@ -22,7 +22,7 @@ func (this *Client) Process() error {
 	for {
 		frame, err := this.ReceiveFrame()
 		if err != nil {
-			return &ProtocolError{err.Error()}
+			return err
 		}
 
 		switch frame.Type {
@@ -34,7 +34,7 @@ func (this *Client) Process() error {
 		case websocket.CloseMessage:
 			this.Close()
 		default:
-			return InvalidMessageError
+			return fmt.Errorf("Invalid message")
 		}
 	}
 

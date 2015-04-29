@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 
 	"github.com/dreamvids/dlive/pkg/chat"
 	"github.com/dreamvids/dlive/pkg/events"
@@ -18,7 +19,8 @@ const (
 )
 
 type serverConfig struct {
-	Port        int
+	HttpPort int `json:"http-port"`
+
 	MaxClients  int    `json:"chat-max-clients"`
 	ModoRank    int    `json:"chat-modo-rank"`
 	AdminRank   int    `json:"chat-admin-rank"`
@@ -58,24 +60,33 @@ func main() {
 		log.Fatalf("Fatal error while parsing config: %s", err)
 	}
 
+	log.Println("Connecting to database...")
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s", c.DbUser, c.DbPass, c.DbHost, c.DbName))
 	if err != nil {
 		log.Fatalf("Database error: %s", err)
 	}
+	defer db.Close()
 
 	if err = db.Ping(); err != nil {
 		log.Fatalf("Database error: %s", err)
 	}
+	log.Println("Connected to database !")
 
-	err = chat.Start(db)
+	err = events.Init(db)
 	if err != nil {
-		log.Fatalf("Fatal error when running server: %s", err)
+		log.Fatal(err)
 	}
 
-	go func() {
-		err = events.Listen(db, ":8080")
-		if err != nil {
-			log.Fatalf("Can not start event server: %s", err)
-		}
-	}()
+	chat.Init(db)
+
+	r := http.NewServeMux()
+	r.HandleFunc("/chat", chat.HandleWebsocket)
+	r.HandleFunc("/live/publish", events.HandlePublish)
+	r.HandleFunc("/live/publish/done", events.HandlePublishDone)
+	r.HandleFunc("/live/play", events.HandlePlay)
+	r.HandleFunc("/live/play/done", events.HandlePlayDone)
+
+	http.Handle("/", r)
+	log.Println("Listening on port", c.HttpPort)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", c.HttpPort), nil))
 }
