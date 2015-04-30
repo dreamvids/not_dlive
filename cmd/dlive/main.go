@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/dreamvids/dlive/pkg/chat"
 	"github.com/dreamvids/dlive/pkg/events"
@@ -49,11 +50,19 @@ func parseConfig(path string) (serverConfig, error) {
 }
 
 func main() {
-	log.Println("Hello world !")
-	log.Println(Name, "- Version", Version)
-
 	configPath := flag.String("config", "dlive.json", "Configuration file to use")
+	logPath := flag.String("log", "", "Log file to use")
 	flag.Parse()
+
+	if len(*logPath) > 0 {
+		f, err := os.OpenFile(*logPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			log.Println("Can not open log file:", err)
+		} else {
+			log.SetOutput(f)
+		}
+		defer f.Close()
+	}
 
 	c, err := parseConfig(*configPath)
 	if err != nil {

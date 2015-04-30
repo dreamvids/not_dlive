@@ -2,7 +2,6 @@ package events
 
 import (
 	"database/sql"
-	"log"
 	"net/http"
 
 	_ "github.com/go-sql-driver/mysql"
