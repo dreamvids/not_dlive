@@ -89,7 +89,7 @@ func main() {
 	chat.Init(db)
 
 	r := http.NewServeMux()
-	r.HandleFunc("/chat", chat.HandleWebsocket)
+	r.HandleFunc("/", chat.HandleWebsocket)
 	r.HandleFunc("/live/publish", events.HandlePublish)
 	r.HandleFunc("/live/publish/done", events.HandlePublishDone)
 	r.HandleFunc("/live/play", events.HandlePlay)
