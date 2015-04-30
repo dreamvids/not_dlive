@@ -8,7 +8,7 @@ case "$1" in
 	start)
 		if ! [ -f "$FOLDER/logs/pid.txt" ]
 		then
-			su $USER -c "$BINARY --config $FOLDER/conf/config.json --log $FOLDER/logs/dlive.txt & echo \$! > /tmp/su.dlive.$$"
+			su $USER -c "$BINARY --config $FOLDER/conf/dlive.json --log $FOLDER/logs/dlive.txt & echo \$! > /tmp/su.dlive.$$"
 			cat /tmp/su.dlive.$$ > $FOLDER/logs/pid.txt
 		fi
 		;;
@@ -23,7 +23,7 @@ case "$1" in
 		if [ -f "$FOLDER/logs/pid.txt" ]
 		then
 			kill -9 `cat "$FOLDER/logs/pid.txt"`
-			su $USER -c "$BINARY --config $FOLDER/conf/config.json --log $FOLDER/logs/dlive.txt & echo \$! > /tmp/su.dlive.$$"
+			su $USER -c "$BINARY --config $FOLDER/conf/dlive.json --log $FOLDER/logs/dlive.txt & echo \$! > /tmp/su.dlive.$$"
 			cat /tmp/su.dlive.$$ > $FOLDER/logs/pid.txt
 		fi
 		;;
