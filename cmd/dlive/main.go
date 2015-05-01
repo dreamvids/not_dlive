@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/dreamvids/dlive/pkg/chat"
 	"github.com/dreamvids/dlive/pkg/events"
+	"github.com/dreamvids/dlive/pkg/messages"
 )
 
 const (
@@ -20,12 +20,14 @@ const (
 )
 
 type serverConfig struct {
-	HttpPort int `json:"http-port"`
+	HttpPort    int    `json:"http-port"`
+	AllowOrigin string `json:"http-allow-origin"`
 
 	MaxClients  int    `json:"chat-max-clients"`
 	ModoRank    int    `json:"chat-modo-rank"`
 	AdminRank   int    `json:"chat-admin-rank"`
 	MuteMessage string `json:"chat-mute-message"`
+	BanMessage  string `json:"chat-ban-message"`
 
 	DbHost string `json:"db-host"`
 	DbUser string `json:"db-username"`
@@ -86,10 +88,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	chat.Init(db)
+	err = messages.Init(db, c.MuteMessage, c.BanMessage, c.ModoRank, c.AdminRank)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	r := http.NewServeMux()
-	r.HandleFunc("/", chat.HandleWebsocket)
+
+	r.HandleFunc("/socket.io/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "http://server.dev")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
+		messages.Server.ServeHTTP(w, r)
+	})
+
 	r.HandleFunc("/live/publish", events.HandlePublish)
 	r.HandleFunc("/live/publish/done", events.HandlePublishDone)
 	r.HandleFunc("/live/play", events.HandlePlay)
