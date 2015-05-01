@@ -170,9 +170,19 @@ func ProcessCommand(command *Message, client *Client) {
 					return
 				}
 			} else {
-				errMsg := "Unmute command usage: /unmute <username>"
-				client.SendTextMessage(errMsg)
+				client.SendTextMessage("Unmute command usage: /unmute <username>")
 			}
+			break
+		case "rank":
+			var r string
+
+			if len(rank) > 0 {
+				r = rank
+			} else {
+				r = "viewer"
+			}
+
+			client.SendTextMessage("You are: " + r)
 			break
 		default:
 			return
