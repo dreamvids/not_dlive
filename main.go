@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/dreamvids/dlive/pkg/chat"
-	"github.com/dreamvids/dlive/pkg/events"
+	"github.com/dreamvids/dlive/chat"
+	"github.com/dreamvids/dlive/events"
 )
 
 const (
