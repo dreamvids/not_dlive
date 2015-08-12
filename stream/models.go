@@ -1,4 +1,4 @@
-package events
+package stream
 
 type LiveAccess struct {
 	Id         int

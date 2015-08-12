@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/gorilla/mux"
+
 	"github.com/dreamvids/dlive/chat"
-	"github.com/dreamvids/dlive/events"
+	"github.com/dreamvids/dlive/stream"
 )
 
 const (
@@ -81,19 +83,14 @@ func main() {
 	}
 	log.Println("Connected to database !")
 
-	err = events.Init(db)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	chat.Init(db)
 
-	r := http.NewServeMux()
+	r := mux.NewRouter()
 	r.HandleFunc("/", chat.HandleWebsocket)
-	r.HandleFunc("/live/publish", events.HandlePublish)
-	r.HandleFunc("/live/publish/done", events.HandlePublishDone)
-	r.HandleFunc("/live/play", events.HandlePlay)
-	r.HandleFunc("/live/play/done", events.HandlePlayDone)
+
+	r.HandleFunc("/stream/push/{id}", stream.HandlePush).Methods("POST")
+	r.HandleFunc("/stream/pull/{id}", stream.HandlePullInfo).Methods("HEAD")
+	r.HandleFunc("/stream/pull/{id}", stream.HandlePull).Methods("GET")
 
 	http.Handle("/", r)
 	log.Println("Listening on port", c.HttpPort)
