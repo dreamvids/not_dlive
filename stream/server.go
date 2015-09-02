@@ -7,19 +7,23 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 
+	"github.com/dreamvids/webm-info/webm"
 	"github.com/gorilla/mux"
 )
 
 const (
-	ChunckSize = 1048576
+	ChunckSize = 100000 // 100 ko
+)
+
+var (
+	StreamsLastFrag    = make(map[string]int64)
+	StreamsVideoHeader = make(map[string][]byte)
 )
 
 func HandlePush(w http.ResponseWriter, r *http.Request) {
-	log.Printf("REQ - %s %v\n", r.Method, r.Header)
-
 	vars := mux.Vars(r)
+	StreamsLastFrag[vars["id"]] = 0
 
 	f, err := os.Create(vars["id"] + ".webm")
 	if err != nil {
@@ -27,128 +31,158 @@ func HandlePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	buf := make([]byte, ChunckSize)
+	index := 0
+
+	_, err = io.ReadFull(r.Body, buf)
+	if err != nil {
+		log.Println("Can not read from request body (push):", err)
+		return
+	}
+
+	var doc webm.Document
+	doc.Data = buf
+	doc.Cursor = 0
+	doc.Length = uint64(len(buf))
+
+	headerData, err := webm.ReadHeader(&doc)
+	if err != nil {
+		log.Println("Invalid webm header (push):", err)
+		return
+	}
+
+	StreamsVideoHeader[vars["id"]] = headerData
+	index += len(headerData)
+
 	for {
-		n, err := io.ReadFull(r.Body, buf)
+		if index != 0 {
+			_, err = f.Write(buf[index:len(buf)])
+			if err != nil {
+				log.Println("Write to file:", err)
+			}
+
+			index = 0
+		} else {
+			n, err := io.ReadFull(r.Body, buf)
+			if err != nil && err != io.ErrUnexpectedEOF {
+				log.Println("Read error:", err)
+				break
+			}
+
+			_, err = f.Write(buf)
+			if err != nil {
+				log.Println("Write to file:", err)
+			}
+
+			if n != len(buf) {
+				break
+			}
+		}
+
+		StreamsLastFrag[vars["id"]]++
+	}
+
+	log.Println("Push done for ID", vars["id"])
+}
+
+func HandlePullInfo(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	lastFrag := StreamsLastFrag[vars["id"]]
+
+	if lastFrag >= 10 {
+		lastFrag -= 10
+	} else {
+		lastFrag = -1
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Write([]byte(fmt.Sprintf("{\"last_fragment\": %d}", lastFrag)))
+}
+
+func HandlePull(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	file, err := os.Open(id + ".webm")
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		log.Println("Error:", err)
+		return
+	}
+
+	var doc webm.Document
+	buf := make([]byte, ChunckSize)
+
+	_, err = io.ReadFull(file, buf)
+	if err != nil && err != io.ErrUnexpectedEOF {
+		log.Println("Read error:", err)
+		return
+	}
+
+	doc.Cursor = 0
+	doc.Length = uint64(len(buf))
+	doc.Data = buf
+
+	headerData, err := webm.ReadHeader(&doc)
+	if err != nil {
+		log.Println("Invalid webm header (push):", err)
+		return
+	}
+
+	w.Write(headerData)
+	fmt.Println("wrote", len(headerData), buf[0])
+
+	/*for {
+		_, err := io.ReadFull(file, buf)
 		if err != nil && err != io.ErrUnexpectedEOF {
 			log.Println("Read error:", err)
 			break
 		}
 
-		_, err = f.Write(buf)
-		if err != nil {
-			log.Println("Write to file:", err)
-		}
+		doc.Data = append(doc.Data, buf...)
+		doc.Length += uint64(len(buf))
 
-		if n != len(buf) {
-			break
+		for {
+			_, err := webm.ReadBlock(&doc)
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				fmt.Println("Pull: can not read block:", err)
+				continue
+			}
 		}
-	}
-
-	log.Println("done")
+	}*/
 }
 
-func HandlePullInfo(w http.ResponseWriter, r *http.Request) {
+func HandlePullFrag(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+	id := vars["id"]
 
-	file, err := os.Open(vars["id"] + ".webm")
+	file, err := os.Open(id + ".webm")
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		log.Println("Error:", err)
 		return
 	}
 
-	info, err := file.Stat()
+	frag, err := strconv.Atoi(vars["frag"])
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusBadRequest)
 		log.Println("Error:", err)
 		return
 	}
 
-	size := info.Size()
-	w.Header().Set("Accept-Ranges", "bytes")
+	start := int64(frag * ChunckSize)
+	buf := make([]byte, ChunckSize)
+
+	n, err := file.ReadAt(buf, start)
+	if n != ChunckSize {
+		w.WriteHeader(http.StatusBadRequest)
+		log.Printf("Error: Invalid bytes red from file (%d != expected %d)\n", n, ChunckSize)
+		return
+	}
+
 	w.Header().Set("Content-Type", "video/webm")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
-}
-
-func HandlePull(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-
-	file, err := os.Open(vars["id"] + ".webm")
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		log.Println("Error:", err)
-		return
-	}
-
-	stat, err := file.Stat()
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		log.Println("Error:", err)
-		return
-	}
-
-	totalSize := stat.Size()
-
-	rangeStr := r.Header.Get("Range")
-	if len(rangeStr) > 0 && strings.Contains(rangeStr, "=") {
-		parts := strings.Split(rangeStr, "=")
-		if len(parts) != 2 {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		rng := parts[1]
-		parts = strings.Split(rng, "-")
-
-		var min int64
-		var max int64
-
-		if len(parts) == 2 && len(parts[1]) > 0 {
-			minI, err1 := strconv.Atoi(parts[0])
-			maxI, err2 := strconv.Atoi(parts[1])
-			if err1 != nil || err2 != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				log.Println("Parse int error:", err1, err2)
-				return
-			}
-
-			min = int64(minI)
-			max = int64(maxI)
-		} else {
-			minI, err := strconv.Atoi(parts[0])
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				log.Println("Parse int error:", err)
-				return
-			}
-
-			min = int64(minI)
-			max = totalSize
-		}
-
-		if min < 0 || max < 0 || min > totalSize || max > totalSize || min >= max {
-			log.Printf("Out of range: [%d-%d] - Max=%d\n", min, max, totalSize)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		buf := make([]byte, max-min)
-
-		n, err := file.ReadAt(buf, min)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			log.Println("Error:", err)
-			return
-		}
-
-		log.Printf("Serving [%d;%d] - len=%d\n", min, max, n)
-
-		w.WriteHeader(http.StatusPartialContent)
-		w.Header().Set("Accept-Ranges", "bytes")
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", n))
-		w.Header().Set("Content-Type", "video/webm")
-		w.Write(buf)
-	} else {
-		http.ServeFile(w, r, vars["id"]+".webm")
-	}
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", ChunckSize))
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Write(buf)
 }

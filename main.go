@@ -1,7 +1,7 @@
 package main
 
 import (
-	"database/sql"
+	//"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,7 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/dreamvids/dlive/chat"
+	//"github.com/dreamvids/dlive/chat"
 	"github.com/dreamvids/dlive/stream"
 )
 
@@ -71,7 +71,7 @@ func main() {
 		log.Fatalf("Fatal error while parsing config: %s", err)
 	}
 
-	log.Println("Connecting to database...")
+	/*log.Println("Connecting to database...")
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s", c.DbUser, c.DbPass, c.DbHost, c.DbName))
 	if err != nil {
 		log.Fatalf("Database error: %s", err)
@@ -83,14 +83,19 @@ func main() {
 	}
 	log.Println("Connected to database !")
 
-	chat.Init(db)
+	chat.Init(db)*/
 
 	r := mux.NewRouter()
-	r.HandleFunc("/", chat.HandleWebsocket)
+	//r.HandleFunc("/", chat.HandleWebsocket)
 
 	r.HandleFunc("/stream/push/{id}", stream.HandlePush).Methods("POST")
-	r.HandleFunc("/stream/pull/{id}", stream.HandlePullInfo).Methods("HEAD")
+	r.HandleFunc("/stream/info/{id}", stream.HandlePullInfo).Methods("GET")
 	r.HandleFunc("/stream/pull/{id}", stream.HandlePull).Methods("GET")
+	r.HandleFunc("/stream/pull/{id}/{frag}", stream.HandlePullFrag).Methods("GET")
+
+	r.HandleFunc("/stream/player", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "stream_player.html")
+	})
 
 	http.Handle("/", r)
 	log.Println("Listening on port", c.HttpPort)

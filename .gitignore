@@ -1,2 +1,5 @@
 cmd/dlive/dlive.json
 *.swp
+*.webm
+*.mkv
+*.mp4
