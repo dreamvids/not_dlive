@@ -3,6 +3,7 @@ package stream
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -124,33 +125,47 @@ func HandlePull(w http.ResponseWriter, r *http.Request) {
 
 	headerData, err := webm.ReadHeader(&doc)
 	if err != nil {
-		log.Println("Invalid webm header (push):", err)
+		log.Println("Invalid webm header (pull):", err)
 		return
 	}
 
 	w.Write(headerData)
-	fmt.Println("wrote", len(headerData), buf[0])
+	ioutil.WriteFile("test.webm", headerData, os.ModePerm)
 
-	/*for {
-		_, err := io.ReadFull(file, buf)
-		if err != nil && err != io.ErrUnexpectedEOF {
-			log.Println("Read error:", err)
+	for {
+		clusterData, err := webm.ReadClusterData(&doc)
+		if err != nil {
+			log.Println("Invalid webm cluster (pull):", err)
 			break
 		}
 
-		doc.Data = append(doc.Data, buf...)
-		doc.Length += uint64(len(buf))
+		w.Write(clusterData)
+		ioutil.WriteFile("test.webm", clusterData, os.ModeAppend)
 
 		for {
-			_, err := webm.ReadBlock(&doc)
+			block, err := webm.ReadBlock(&doc)
 			if err == io.EOF {
+				var doc webm.Document
+				buf := make([]byte, ChunckSize)
+
+				_, err = io.ReadFull(file, buf)
+				if err != nil && err != io.ErrUnexpectedEOF {
+					log.Println("Read error:", err)
+					return
+				}
+
+				doc.Length += uint64(len(buf))
+				doc.Data = append(doc.Data, buf...)
 				break
 			} else if err != nil {
-				fmt.Println("Pull: can not read block:", err)
-				continue
+				log.Printf("Invalid webm block (pull): %s -- %d %d: 0x%x\n", err, doc.Cursor, doc.Length, doc.Data[doc.Cursor])
+				return
 			}
+
+			w.Write(block)
+			ioutil.WriteFile("test.webm", block, os.ModeAppend)
 		}
-	}*/
+	}
 }
 
 func HandlePullFrag(w http.ResponseWriter, r *http.Request) {
