@@ -8,94 +8,11 @@
 
 	<body>
 		<h1>Stream Player</h1>
-		<video id="video" controls autoplay muted src="http://127.0.0.1:8081/stream/pull/mdr">Mdr</video>
+		<video id="video" controls autoplay muted>
+			<source src="http://127.0.0.1:8081/stream/pull/mdr" type="video/webm">
+			Mdr
+		</video>
 	</body>
 
 	<script src="https://cdn.rawgit.com/dimitrinicolas/marmottajax/master/bin/marmottajax.min.js"></script>
-
-	<script>
-
-var id = "mdr";
-var v = document.getElementById("video");
-var ms = new MediaSource();
-var playing = false;
-var frag = 0;
-
-function httpGet(url, callback) {
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', url, true);
-  xhr.responseType = 'arraybuffer';
-  xhr.send();
-
-  xhr.onload = function(e) {
-    if (xhr.status != 200) {
-      return false;
-    }
-    callback(new Uint8Array(xhr.response));
-  };
-}
-
-function start(res) {
-	var info = JSON.parse(res);
-	frag = info.last_fragment;
-
-	if(frag < 0) {
-		return;
-	}
-
-	v.src = window.URL.createObjectURL(ms);
-
-	ms.addEventListener("sourceopen", function() {
-		open();
-	}, false);
-
-	v.play();
-}
-
-function open() {
-	var sourceBuffer = ms.addSourceBuffer('video/webm; codecs="vorbis,vp8"');
-
-	httpGet("http://127.0.0.1:8081/stream/pull/" + id + "/0", function(res) {
-		if(res != false) {
-			sourceBuffer.appendBuffer(res);
-			if(v.paused) {
-				v.play();
-			}
-
-			console.log("Loaded " + res.length + " bytes from fragment 0");
-		}
-	});
-
-	setInterval(function() {
-		marmottajax({
-			url: "http://127.0.0.1:8081/stream/info/" + id,
-			method: "GET"
-		}).then(function(res) {
-			var info = JSON.parse(res);
-			var newFrag = info.last_fragment;
-
-			if(newFrag > frag) {
-				httpGet("http://127.0.0.1:8081/stream/pull/" + id + "/" + newFrag, function(res) {
-					if(res != false) {
-						sourceBuffer.appendBuffer(res);
-						if(v.paused) {
-							v.play();
-						}
-
-						frag = newFrag;
-						console.log("Loaded " + res.length + " bytes from fragment " + frag);
-					}
-				});
-			}
-		});
-		
-	}, 1000);
-}
-
-/*marmottajax({
-	url: "http://127.0.0.1:8081/stream/info/" + id,
-	method: "GET"
-}).then(start);*/
-
-	</script>
 </html>

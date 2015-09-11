@@ -14,17 +14,11 @@ import (
 )
 
 const (
-	ChunckSize = 100000 // 100 ko
-)
-
-var (
-	StreamsLastFrag    = make(map[string]int64)
-	StreamsVideoHeader = make(map[string][]byte)
+	ChunckSize = 100000 // 100 KB
 )
 
 func HandlePush(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	StreamsLastFrag[vars["id"]] = 0
 
 	f, err := os.Create(vars["id"] + ".webm")
 	if err != nil {
@@ -32,92 +26,59 @@ func HandlePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	buf := make([]byte, ChunckSize)
-	index := 0
-
-	_, err = io.ReadFull(r.Body, buf)
-	if err != nil {
-		log.Println("Can not read from request body (push):", err)
-		return
-	}
-
-	var doc webm.Document
-	doc.Data = buf
-	doc.Cursor = 0
-	doc.Length = uint64(len(buf))
-
-	headerData, err := webm.ReadHeader(&doc)
-	if err != nil {
-		log.Println("Invalid webm header (push):", err)
-		return
-	}
-
-	StreamsVideoHeader[vars["id"]] = headerData
-	index += len(headerData)
 
 	for {
-		if index != 0 {
-			_, err = f.Write(buf[index:len(buf)])
-			if err != nil {
-				log.Println("Write to file:", err)
-			}
-
-			index = 0
-		} else {
-			n, err := io.ReadFull(r.Body, buf)
-			if err != nil && err != io.ErrUnexpectedEOF {
-				log.Println("Read error:", err)
-				break
-			}
-
-			_, err = f.Write(buf)
-			if err != nil {
-				log.Println("Write to file:", err)
-			}
-
-			if n != len(buf) {
-				break
-			}
+		n, err := io.ReadFull(r.Body, buf)
+		if err != nil {
+			log.Println("Read error:", err)
+			break
 		}
 
-		StreamsLastFrag[vars["id"]]++
+		_, err = f.Write(buf)
+		if err != nil {
+			log.Println("Write to file:", err)
+		}
+
+		if n != len(buf) {
+			break
+		}
 	}
 
 	log.Println("Push done for ID", vars["id"])
 }
 
 func HandlePullInfo(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	lastFrag := StreamsLastFrag[vars["id"]]
-
-	if lastFrag >= 10 {
-		lastFrag -= 10
-	} else {
-		lastFrag = -1
-	}
+	//vars := mux.Vars(r)
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Write([]byte(fmt.Sprintf("{\"last_fragment\": %d}", lastFrag)))
+	//w.Write([]byte(fmt.Sprintf("{\"last_fragment\": %d}", lastFrag)))
 }
 
 func HandlePull(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	file, err := os.Open(id + ".webm")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		fmt.Println("Can not setup response (flushder)")
+		return
+	}
+
+	var doc webm.Document
+
+	buf, err := ioutil.ReadFile(id + ".webm")
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		log.Println("Error:", err)
 		return
 	}
 
-	var doc webm.Document
-	buf := make([]byte, ChunckSize)
-
-	_, err = io.ReadFull(file, buf)
-	if err != nil && err != io.ErrUnexpectedEOF {
-		log.Println("Read error:", err)
-		return
-	}
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("Content-Type", "video/webm")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Connection", "keep-alive")
 
 	doc.Cursor = 0
 	doc.Length = uint64(len(buf))
@@ -130,7 +91,7 @@ func HandlePull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write(headerData)
-	ioutil.WriteFile("test.webm", headerData, os.ModePerm)
+	flusher.Flush()
 
 	for {
 		clusterData, err := webm.ReadClusterData(&doc)
@@ -140,30 +101,19 @@ func HandlePull(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Write(clusterData)
-		ioutil.WriteFile("test.webm", clusterData, os.ModeAppend)
+		flusher.Flush()
 
 		for {
 			block, err := webm.ReadBlock(&doc)
-			if err == io.EOF {
-				var doc webm.Document
-				buf := make([]byte, ChunckSize)
-
-				_, err = io.ReadFull(file, buf)
-				if err != nil && err != io.ErrUnexpectedEOF {
-					log.Println("Read error:", err)
-					return
-				}
-
-				doc.Length += uint64(len(buf))
-				doc.Data = append(doc.Data, buf...)
+			if err == webm.EndOfBlock {
 				break
 			} else if err != nil {
-				log.Printf("Invalid webm block (pull): %s -- %d %d: 0x%x\n", err, doc.Cursor, doc.Length, doc.Data[doc.Cursor])
+				log.Printf("Invalid webm block (pull): %s -- %d of %d\n", err, doc.Cursor, doc.Length)
 				return
 			}
 
 			w.Write(block)
-			ioutil.WriteFile("test.webm", block, os.ModeAppend)
+			flusher.Flush()
 		}
 	}
 }
