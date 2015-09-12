@@ -89,9 +89,7 @@ func main() {
 	//r.HandleFunc("/", chat.HandleWebsocket)
 
 	r.HandleFunc("/stream/push/{id}", stream.HandlePush).Methods("POST")
-	r.HandleFunc("/stream/info/{id}", stream.HandlePullInfo).Methods("GET")
 	r.HandleFunc("/stream/pull/{id}", stream.HandlePull).Methods("GET")
-	r.HandleFunc("/stream/pull/{id}/{frag}", stream.HandlePullFrag).Methods("GET")
 
 	r.HandleFunc("/stream/player", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "stream_player.html")

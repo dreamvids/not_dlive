@@ -3,18 +3,21 @@ package stream
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
+	"time"
 
 	"github.com/dreamvids/webm-info/webm"
 	"github.com/gorilla/mux"
 )
 
 const (
-	ChunckSize = 100000 // 100 KB
+	ChunckSize = 30000
+)
+
+var (
+	Streaming = make(map[string]bool)
 )
 
 func HandlePush(w http.ResponseWriter, r *http.Request) {
@@ -25,7 +28,10 @@ func HandlePush(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
+	log.Println("Initiating push for ID", vars["id"])
+
 	buf := make([]byte, ChunckSize)
+	Streaming[vars["id"]] = true
 
 	for {
 		n, err := io.ReadFull(r.Body, buf)
@@ -44,14 +50,8 @@ func HandlePush(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	Streaming[vars["id"]] = false
 	log.Println("Push done for ID", vars["id"])
-}
-
-func HandlePullInfo(w http.ResponseWriter, r *http.Request) {
-	//vars := mux.Vars(r)
-
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	//w.Write([]byte(fmt.Sprintf("{\"last_fragment\": %d}", lastFrag)))
 }
 
 func HandlePull(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +66,7 @@ func HandlePull(w http.ResponseWriter, r *http.Request) {
 
 	var doc webm.Document
 
-	buf, err := ioutil.ReadFile(id + ".webm")
+	file, err := os.Open(id + ".webm")
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		log.Println("Error:", err)
@@ -80,9 +80,10 @@ func HandlePull(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Connection", "keep-alive")
 
-	doc.Cursor = 0
-	doc.Length = uint64(len(buf))
-	doc.Data = buf
+	log.Println("Initiating pull for ID", vars["id"])
+
+	ck := 0
+	loadVideoChunk(&doc, file, &ck)
 
 	headerData, err := webm.ReadHeader(&doc)
 	if err != nil {
@@ -93,61 +94,49 @@ func HandlePull(w http.ResponseWriter, r *http.Request) {
 	w.Write(headerData)
 	flusher.Flush()
 
+	lastClPos := uint64(0)
 	for {
-		clusterData, err := webm.ReadClusterData(&doc)
+		lastClPos = doc.Cursor
+
+		clusterData, err := webm.ReadCluster(&doc)
 		if err != nil {
-			log.Println("Invalid webm cluster (pull):", err)
-			break
+			if !Streaming[id] {
+				log.Println("Pull done for ID", vars["id"])
+				return
+			}
+
+			for {
+				err = loadVideoChunk(&doc, file, &ck)
+				if err != nil {
+					time.Sleep(500 * time.Millisecond)
+					continue
+				}
+
+				break
+			}
+
+			doc.Cursor = lastClPos
+			continue
 		}
 
 		w.Write(clusterData)
 		flusher.Flush()
-
-		for {
-			block, err := webm.ReadBlock(&doc)
-			if err == webm.EndOfBlock {
-				break
-			} else if err != nil {
-				log.Printf("Invalid webm block (pull): %s -- %d of %d\n", err, doc.Cursor, doc.Length)
-				return
-			}
-
-			w.Write(block)
-			flusher.Flush()
-		}
 	}
 }
 
-func HandlePullFrag(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id := vars["id"]
-
-	file, err := os.Open(id + ".webm")
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		log.Println("Error:", err)
-		return
-	}
-
-	frag, err := strconv.Atoi(vars["frag"])
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		log.Println("Error:", err)
-		return
-	}
-
-	start := int64(frag * ChunckSize)
+func loadVideoChunk(doc *webm.Document, file *os.File, i *int) error {
 	buf := make([]byte, ChunckSize)
 
-	n, err := file.ReadAt(buf, start)
-	if n != ChunckSize {
-		w.WriteHeader(http.StatusBadRequest)
-		log.Printf("Error: Invalid bytes red from file (%d != expected %d)\n", n, ChunckSize)
-		return
+	n, err := file.ReadAt(buf, int64((*i)*ChunckSize))
+	if err != nil {
+		if n <= 0 {
+			return io.EOF
+		}
 	}
 
-	w.Header().Set("Content-Type", "video/webm")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", ChunckSize))
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Write(buf)
+	doc.Data = append(doc.Data, buf...)
+	doc.Length += ChunckSize
+	*i++
+
+	return nil
 }
