@@ -47,7 +47,7 @@ dlive --config /path/to/dlive.json --log log.txt
 To push a stream to the server using ffmpeg:
 
 ```
-ffmpeg ... -f webm http://127.0.0.1:8081/stream/push/<id>
+ffmpeg ... -f webm http://127.0.0.1:8081/stream/push/ID
 ```
 
-To watch it, use the following url: http://127.0.0.1:8081/stream/pull/<id>
+To watch it, use the following url: http://127.0.0.1:8081/stream/pull/ID
