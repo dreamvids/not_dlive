@@ -11,16 +11,16 @@ import (
 
 func handlePushStream(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
-	log.Println("Push", v["id"])
+	id := v["id"]
 
-	stream.Push(v["id"], w, r)
+	stream.Push(id, w, r)
 }
 
 func handlePullStream(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
-	log.Println("Pull", v["id"])
+	id := v["id"]
 
-	stream.Push(v["id"], w, r)
+	stream.Pull(id, w, r)
 }
 
 func main() {
