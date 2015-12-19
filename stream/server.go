@@ -3,25 +3,31 @@ package stream
 import (
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/quadrifoglio/go-webm"
 )
 
 type Stream struct {
-	Header  []byte
-	Cluster []byte
+	Header      []byte
+	Cluster     []byte
+	LastCluster int
 }
 
 var (
 	Streams = make(map[string]*Stream)
+	Mutex   = &sync.Mutex{}
 )
 
 func Push(id string, w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Push", id)
 
 	buf := make([]byte, 1000000) // 1MB (max frame size)
-	Streams[id] = &Stream{nil, nil}
+
+	Mutex.Lock()
+	Streams[id] = &Stream{make([]byte, 1), make([]byte, 1), 0}
+	Mutex.Unlock()
 
 	for {
 		n, err := r.Body.Read(buf)
@@ -36,29 +42,52 @@ func Push(id string, w http.ResponseWriter, r *http.Request) {
 		}
 
 		doc := webm.InitDocument(buf)
-
 		el, err := doc.ParseElement()
 		if err != nil {
 			fmt.Println("WebM:", err, "at", doc.Cursor)
+			Mutex.Lock()
 			Streams[id].Cluster = nil
+			Mutex.Unlock()
 			break
 		}
 
 		fmt.Printf("Element: %s (%x)\n", el.Name, el.ID)
 
 		if el.ID == webm.ElementEBML.ID {
-			Streams[id].Header = buf[0:n]
+			Mutex.Lock()
+
+			if n > len(Streams[id].Header) {
+				Streams[id].Header = make([]byte, n)
+			}
+
+			copy(Streams[id].Header, buf[0:n])
+
+			Mutex.Unlock()
 		}
 		if el.ID == webm.ElementCluster.ID {
-			Streams[id].Cluster = buf[0:n]
+			Mutex.Lock()
+
+			if n > len(Streams[id].Cluster) {
+				Streams[id].Cluster = make([]byte, n)
+			}
+
+			copy(Streams[id].Cluster, buf[0:n])
+			Streams[id].LastCluster++
+
+			Mutex.Unlock()
 		}
 	}
 
+	Mutex.Lock()
 	Streams[id] = nil
+	Mutex.Unlock()
 }
 
 func Pull(id string, w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Pull", id)
+
+	Mutex.Lock()
+	defer Mutex.Unlock()
 
 	if Streams[id] == nil {
 		w.WriteHeader(http.StatusNotFound)
@@ -72,12 +101,13 @@ func Pull(id string, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write(Streams[id].Header)
-	flusher.Flush()
+	var lastSent = Streams[id].LastCluster
 
-	var lastLen = 0
+	w.Write(Streams[id].Header)
+	Mutex.Unlock()
 
 	for {
+		Mutex.Lock()
 		if Streams[id] == nil {
 			break
 		}
@@ -87,13 +117,15 @@ func Pull(id string, w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		if len(cl) != lastLen {
+		if lastSent < Streams[id].LastCluster {
 			w.Write(cl)
 			flusher.Flush()
+			fmt.Println("Flushed")
 
-			lastLen = len(cl)
+			lastSent++
 		}
 
+		Mutex.Unlock()
 		time.Sleep(1 * time.Millisecond)
 	}
 }
