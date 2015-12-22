@@ -3,6 +3,7 @@ package stream
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -29,6 +30,14 @@ func Push(id string, w http.ResponseWriter, r *http.Request) {
 	Streams[id] = &Stream{make([]byte, 1), make([]byte, 1), 0}
 	Mutex.Unlock()
 
+	file, err := os.OpenFile(id+".webm", os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	defer file.Close()
+
 	for {
 		n, err := r.Body.Read(buf)
 		if err != nil {
@@ -45,10 +54,7 @@ func Push(id string, w http.ResponseWriter, r *http.Request) {
 		el, err := doc.ParseElement()
 		if err != nil {
 			fmt.Println("WebM:", err, "at", doc.Cursor)
-			Mutex.Lock()
-			Streams[id].Cluster = nil
-			Mutex.Unlock()
-			break
+			continue
 		}
 
 		fmt.Printf("Element: %s (%x)\n", el.Name, el.ID)
@@ -56,22 +62,24 @@ func Push(id string, w http.ResponseWriter, r *http.Request) {
 		if el.ID == webm.ElementEBML.ID {
 			Mutex.Lock()
 
-			if n > len(Streams[id].Header) {
+			if n != len(Streams[id].Header) {
 				Streams[id].Header = make([]byte, n)
 			}
 
 			copy(Streams[id].Header, buf[0:n])
+			file.Write(buf[0:n])
 
 			Mutex.Unlock()
 		}
 		if el.ID == webm.ElementCluster.ID {
 			Mutex.Lock()
 
-			if n > len(Streams[id].Cluster) {
+			if n != len(Streams[id].Cluster) {
 				Streams[id].Cluster = make([]byte, n)
 			}
 
 			copy(Streams[id].Cluster, buf[0:n])
+			file.Write(buf[0:n])
 			Streams[id].LastCluster++
 
 			Mutex.Unlock()
@@ -103,7 +111,14 @@ func Pull(id string, w http.ResponseWriter, r *http.Request) {
 
 	var lastSent = Streams[id].LastCluster
 
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("Content-Type", "video/webm")
+	w.Header().Set("Connection", "keep-alive")
+
 	w.Write(Streams[id].Header)
+	flusher.Flush()
 	Mutex.Unlock()
 
 	for {
@@ -118,10 +133,12 @@ func Pull(id string, w http.ResponseWriter, r *http.Request) {
 		}
 
 		if lastSent < Streams[id].LastCluster {
-			w.Write(cl)
-			flusher.Flush()
-			fmt.Println("Flushed")
+			_, err := w.Write(cl)
+			if err != nil {
+				return
+			}
 
+			flusher.Flush()
 			lastSent++
 		}
 
