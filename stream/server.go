@@ -38,8 +38,8 @@ func Push(id string, w http.ResponseWriter, r *http.Request) {
 
 	doc := mkv.InitDocument(r.Body)
 	doc.ParseAll(func(el mkv.Element) {
-		// TODO: Stream the clusters to the clients
-		fmt.Println("Element %s\n", el.Name)
+		fmt.Printf("Element %s\n", el.Name)
+		file.Write(el.Bytes)
 	})
 
 	Mutex.Lock()
@@ -51,11 +51,12 @@ func Pull(id string, w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Pull", id)
 
 	Mutex.Lock()
-
 	if Streams[id] == nil {
 		w.WriteHeader(http.StatusNotFound)
+		Mutex.Unlock()
 		return
 	}
+	Mutex.Unlock()
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -70,6 +71,17 @@ func Pull(id string, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "video/webm")
 	w.Header().Set("Connection", "keep-alive")
 
-	w.Write(Streams[id].Header)
-	flusher.Flush()
+	file, err := os.Open(id + ".webm")
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	defer file.Close()
+
+	doc := mkv.InitDocument(file)
+	doc.ParseAll(func(el mkv.Element) {
+		w.Write(el.Bytes)
+		flusher.Flush()
+	})
 }
