@@ -2,18 +2,17 @@ package stream
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sync"
-	"time"
 
-	"github.com/quadrifoglio/go-webm"
+	"github.com/quadrifoglio/go-mkv"
 )
 
 type Stream struct {
-	Header      []byte
-	Cluster     []byte
-	LastCluster int
+	Header []byte
+	Stream *io.ReadCloser
 }
 
 var (
@@ -24,67 +23,24 @@ var (
 func Push(id string, w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Push", id)
 
-	buf := make([]byte, 1000000) // 1MB (max frame size)
-
 	Mutex.Lock()
-	Streams[id] = &Stream{make([]byte, 1), make([]byte, 1), 0}
-	Mutex.Unlock()
+	Streams[id] = &Stream{make([]byte, 1), nil}
 
-	file, err := os.OpenFile(id+".webm", os.O_CREATE|os.O_WRONLY, 0600)
+	file, err := os.OpenFile(id+".mkv", os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		fmt.Println(err)
+		Mutex.Unlock()
 		return
 	}
 
 	defer file.Close()
+	Mutex.Unlock()
 
-	for {
-		n, err := r.Body.Read(buf)
-		if err != nil {
-			fmt.Println(err)
-			Streams[id].Cluster = nil
-			break
-		}
-
-		if n <= 0 {
-			continue
-		}
-
-		doc := webm.InitDocument(buf)
-		el, err := doc.ParseElement()
-		if err != nil {
-			fmt.Println("WebM:", err, "at", doc.Cursor)
-			continue
-		}
-
-		fmt.Printf("Element: %s (%x)\n", el.Name, el.ID)
-
-		if el.ID == webm.ElementEBML.ID {
-			Mutex.Lock()
-
-			if n != len(Streams[id].Header) {
-				Streams[id].Header = make([]byte, n)
-			}
-
-			copy(Streams[id].Header, buf[0:n])
-			file.Write(buf[0:n])
-
-			Mutex.Unlock()
-		}
-		if el.ID == webm.ElementCluster.ID {
-			Mutex.Lock()
-
-			if n != len(Streams[id].Cluster) {
-				Streams[id].Cluster = make([]byte, n)
-			}
-
-			copy(Streams[id].Cluster, buf[0:n])
-			file.Write(buf[0:n])
-			Streams[id].LastCluster++
-
-			Mutex.Unlock()
-		}
-	}
+	doc := mkv.InitDocument(r.Body)
+	doc.ParseAll(func(el mkv.Element) {
+		// TODO: Stream the clusters to the clients
+		fmt.Println("Element %s\n", el.Name)
+	})
 
 	Mutex.Lock()
 	Streams[id] = nil
@@ -95,7 +51,6 @@ func Pull(id string, w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Pull", id)
 
 	Mutex.Lock()
-	defer Mutex.Unlock()
 
 	if Streams[id] == nil {
 		w.WriteHeader(http.StatusNotFound)
@@ -109,8 +64,6 @@ func Pull(id string, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var lastSent = Streams[id].LastCluster
-
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Transfer-Encoding", "chunked")
@@ -119,30 +72,4 @@ func Pull(id string, w http.ResponseWriter, r *http.Request) {
 
 	w.Write(Streams[id].Header)
 	flusher.Flush()
-	Mutex.Unlock()
-
-	for {
-		Mutex.Lock()
-		if Streams[id] == nil {
-			break
-		}
-
-		cl := Streams[id].Cluster
-		if cl == nil {
-			break
-		}
-
-		if lastSent < Streams[id].LastCluster {
-			_, err := w.Write(cl)
-			if err != nil {
-				return
-			}
-
-			flusher.Flush()
-			lastSent++
-		}
-
-		Mutex.Unlock()
-		time.Sleep(1 * time.Millisecond)
-	}
 }
