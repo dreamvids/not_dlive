@@ -10,17 +10,9 @@ import (
 )
 
 func handlePushStream(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	id := v["id"]
-
-	stream.Push(id, w, r)
 }
 
 func handlePullStream(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	id := v["id"]
-
-	stream.Pull(id, w, r)
 }
 
 func main() {
@@ -28,8 +20,20 @@ func main() {
 
 	r := mux.NewRouter()
 
-	r.HandleFunc("/stream/push/{id}", handlePushStream)
-	r.HandleFunc("/stream/pull/{id}", handlePullStream)
+	notif := make(chan int)
+	r.HandleFunc("/stream/push/{id}", func(w http.ResponseWriter, r *http.Request) {
+		v := mux.Vars(r)
+		id := v["id"]
+
+		stream.Push(id, notif, w, r)
+	})
+	r.HandleFunc("/stream/pull/{id}", func(w http.ResponseWriter, r *http.Request) {
+		v := mux.Vars(r)
+		id := v["id"]
+
+		stream.Pull(id, notif, w, r)
+	})
+
 	http.Handle("/", r)
 
 	err := chat.BindServer("/chat")
